@@ -1,7 +1,13 @@
+"""
+Orchestrator: run baselines and/or train+evaluate algorithms, all through the
+same shared evaluate_policy() so every row of results is directly comparable.
+"""
+
 from policies.random_policy import random_action
 from policies.heuristic_policy import heuristic_action
 from policies.trained_policy import make_trained_action_fn
 from algorithms.dqn import train_dqn
+from algorithms.a2c import train_a2c
 from evaluate import evaluate_policy
 import numpy as np
 
@@ -27,14 +33,34 @@ def run_dqn(total_timesteps=100_000, train_seed=0, num_episodes=100):
 
 
 def run_dqn_multi_seed(seeds=(0, 1, 2, 3, 4), total_timesteps=100_000, num_episodes=100):
+    return _run_multi_seed(run_dqn, "DQN", seeds=seeds,
+                           total_timesteps=total_timesteps, num_episodes=num_episodes)
+
+
+def run_a2c(total_timesteps=100_000, train_seed=0, num_episodes=100):
+    print("Training A2C...")
+    model = train_a2c(total_timesteps=total_timesteps, seed=train_seed)
+    print("\nTraining complete. Evaluating...")
+    action_fn = make_trained_action_fn(model)
+    results = evaluate_policy(action_fn, policy_name="Trained A2C",
+                              num_episodes=num_episodes)
+    return model, results
+
+
+def run_a2c_multi_seed(seeds=(0, 1, 2, 3, 4), total_timesteps=100_000, num_episodes=100):
+    return _run_multi_seed(run_a2c, "A2C", seeds=seeds,
+                           total_timesteps=total_timesteps, num_episodes=num_episodes)
+
+
+def _run_multi_seed(run_fn, algo_name, seeds, total_timesteps, num_episodes):
     all_results = []
 
     for seed in seeds:
         print(f"\n{'=' * 50}")
-        print(f"DQN - training seed {seed}")
+        print(f"{algo_name} - training seed {seed}")
         print(f"{'=' * 50}")
-        model, results = run_dqn(total_timesteps=total_timesteps,
-                                 train_seed=seed, num_episodes=num_episodes)
+        model, results = run_fn(total_timesteps=total_timesteps,
+                                train_seed=seed, num_episodes=num_episodes)
         results["train_seed"] = seed
         all_results.append(results)
 
@@ -43,7 +69,7 @@ def run_dqn_multi_seed(seeds=(0, 1, 2, 3, 4), total_timesteps=100_000, num_episo
     across_seed_std = float(np.std(mean_rewards))
 
     print(f"\n{'=' * 50}")
-    print("DQN — summary across seeds")
+    print(f"{algo_name} — summary across seeds")
     print(f"{'=' * 50}")
     for r in all_results:
         print(f"  seed={r['train_seed']}: mean_reward={r['mean_reward']:.2f}, "
@@ -56,7 +82,8 @@ def run_dqn_multi_seed(seeds=(0, 1, 2, 3, 4), total_timesteps=100_000, num_episo
 
 
 if __name__ == "__main__":
-    run_random_baseline()
-    run_heuristic_baseline()
+    # run_random_baseline()
+    # run_heuristic_baseline()
     # run_dqn()
-    run_dqn_multi_seed()
+    # run_a2c()
+    run_a2c_multi_seed()
