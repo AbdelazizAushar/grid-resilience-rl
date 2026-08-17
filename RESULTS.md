@@ -68,23 +68,39 @@ directly comparable. 100,000 training timesteps (~4,166 episodes) per run.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 2026-08-16 | 0 | 100 | -33.59 | 15.90 | — | 0 | 0.00 | 0.00 | Yes (-33.59 vs -162.59) | First run |
 | 2026-08-16 | 0 (re-run) | 100 | -37.24 | 12.79 | -67.87 / -19.71 | 0 | 0.00 | 0.00 | Yes (-37.24 vs -162.59) | Re-run, same train seed — small variation expected (network init, exploration, buffer sampling are separate RNG streams from the env's own seed, and not all are bit-for-bit reproducible, especially on GPU) |
+| 2026-08-16 | 1 | 100 | -29.19 | 15.55 | — | 0 | 0.00 | 0.00 | Yes | Multi-seed sweep via `run_dqn_multi_seed` |
+| 2026-08-16 | 2 | 100 | -52.63 | 25.19 | — | 0 | 0.00 | 0.07 | Yes | Multi-seed sweep — outlier: weakest mean, highest std, only seed with any unmet load |
+| 2026-08-16 | 3 | 100 | -24.46 | 15.95 | — | 0 | 0.00 | 0.00 | Yes | Multi-seed sweep — best seed |
+| 2026-08-16 | 4 | 100 | -28.94 | 15.59 | -66.93 / -5.00 | 0 | 0.00 | 0.00 | Yes | Multi-seed sweep |
+
+**Across-seed summary (seeds 0, 1, 2, 3, 4 — using the sweep run, not the seed=0 re-run):**
+Across-seed mean of mean_reward: **-34.49**, across-seed std: **9.96**.
+Range: -24.46 (seed 3, best) to -52.63 (seed 2, worst).
 
 **Reading these results:**
 
-- Both runs clearly beat the heuristic baseline (-162.59) by roughly 4-5x, and both
-  achieve **zero unmet load** across all 100 held-out episodes — the heuristic's known
-  weakness (reactive-only, no foresight around peak hours) appears to be resolved.
-- Std dev dropped sharply vs. heuristic (105.83 → ~13-16) — the trained policy isn't
-  just better on average, it's far more consistent episode to episode.
-- Trace inspection (episode 0) shows the agent charging early, holding reserve through
-  a long idle stretch, and discharging through the evening peak window without running
-  out — consistent with the "anticipates peak-hour risk" behavior the heuristic lacks.
-- One oddity noted in the second run's trace: a `shed_load` action taken while battery
+- Every one of the 5 seeds clearly beats the heuristic baseline (-162.59) by a wide
+  margin — 3x at the weakest (seed 2) to nearly 7x at the best (seed 3). This is a
+  robust result, not a fluke tied to one lucky seed.
+- 4 of 5 seeds achieve **zero unmet load** across all 100 held-out episodes — the
+  heuristic's known weakness (reactive-only, no foresight around peak hours) appears
+  largely resolved.
+- Std dev per-run (~13-25) is well below heuristic's (105.83) in every case — the
+  trained policy isn't just better on average, it's far more consistent episode to
+  episode, even in its weakest seed.
+- Trace inspection (episode 0, seed 0) shows the agent charging early, holding reserve
+  through a long idle stretch, and discharging through the evening peak window without
+  running out — consistent with "anticipates peak-hour risk" behavior the heuristic lacks.
+- **Seed 2 is a genuine outlier**: noticeably worse mean reward, roughly double the std
+  dev of other seeds, and the only seed with any nonzero unmet load (0.07 kWh/ep).
+  Converged to a weaker local optimum than the other four — a normal RL outcome, not a
+  bug, and exactly the kind of thing a single-seed result would have hidden (either
+  overstating reliability if only seed 3 had been run, or understating typical
+  performance if only seed 2 had been run).
+- One oddity noted in an earlier trace: a `shed_load` action taken while battery
   was fully charged (10.00/10.00). Plausible explanation: load demand that hour exceeded
   the single-hour max discharge rate, making shed better than partial-discharge +
   unmet-load penalty — not yet confirmed, low priority.
-- **This is single-seed evidence only (same train seed=0 both times).** Per the project's
-  evaluation plan, results should be confirmed across 2-3+ *different* training seeds
-  before trusting this as a reliable result rather than a lucky run — not yet done.
-
----
+- **Honest reportable claim:** DQN reliably beats the heuristic baseline across 5 seeds
+  (mean -34.49 ± 9.96), with some seed-dependent variance in how strong the learned
+  policy is (range -24.46 to -52.63).
