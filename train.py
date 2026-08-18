@@ -97,4 +97,5 @@ if __name__ == "__main__":
     # run_heuristic_baseline()
     # run_dqn()
     # run_a2c()
-    run_ppo_multi_seed()
+    run_a2c_multi_seed()
+    # run_ppo_multi_seed()

@@ -15,7 +15,7 @@ def train_a2c(total_timesteps=100_000, seed=0, verbose=1):
         n_steps=5,             # steps collected per update (on-policy - no replay buffer)
         gamma=0.99,             # discount factor - same reasoning as DQN
         gae_lambda=1.0,         # generalized advantage estimation smoothing
-        ent_coef=0.0,           # entropy bonus - encourages exploration via policy randomness
+        ent_coef=0.01,           # entropy bonus - encourages exploration via policy randomness
         vf_coef=0.5,            # weight on value-function loss vs policy loss
         verbose=verbose,
         seed=seed,
