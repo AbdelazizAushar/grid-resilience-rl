@@ -17,18 +17,22 @@ Purpose: sanity-check the environment (not the algorithm). Confirms no physicall
 impossible states occur and reward scale is sane, before trusting any training results.
 
 | Date | Episodes | Mean reward | Std dev | Min / Max | Battery violations | Invalid actions/ep | Unmet load (kWh)/ep | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+|---|---|---|---|---|---|---|---|---|
 | 2026-08-15 | 100 | -341.22 | 236.13 | -949.69 / -33.60 | 0 | 0.62 | 2.88 | Initial run, seed=42 base + per-episode seed=ep |
-| 2026-08-15 | 100 | -393.04 | 263.50 | -1148.61 / -29.00 | 0 | 0.71 | 3.43 | Re-run — TODO: confirm whether config/constants changed vs. row above, since numbers should be deterministic given same code+seeds |
+| 2026-08-15 | 100 | -393.04 | 263.50 | -1148.61 / -29.00 | 0 | 0.71 | 3.43 | Re-run — differs from row above, see open items |
+| 2026-08-16 | 100 | -350.31 | 224.60 | -916.49 / -22.29 | 0 | 0.76 | 3.00 | Re-run after refactor into policies/ + evaluate.py — still differs run-to-run, see open items |
 
 **Reading these results:**
-
 - Battery violations = 0 confirms the clamp logic in `step()` is working (charge/discharge
   never pushes battery outside [0, BATTERY_CAPACITY]).
 - Mean reward is strongly negative and high-variance, as expected — random policy has
   no strategy, so it frequently leaves load unmet (`PENALTY_UNMET_LOAD = -100/kWh`) and
   occasionally attempts invalid actions (e.g., charging from a downed grid).
 - These numbers are the floor DQN needs to clear by a wide margin.
+- Unlike the heuristic baseline (below), these three runs do NOT match exactly despite
+  identical seeding intent — see open items. Root cause suspected: `env.action_space.sample()`
+  uses Gymnasium's own internal RNG, separate from the environment's `self._np_random`,
+  and is likely not being explicitly seeded.
 
 ### Heuristic Policy Baseline
 
@@ -36,14 +40,14 @@ Purpose: check whether RL is actually worth it, not just whether the code runs.
 Rule (priority order, each hour): discharge battery to load if grid is down and
 battery has charge → else charge from grid if grid is up and battery has room →
 else shed load if grid is down and battery is empty → else idle.
-See `heuristic_baseline.py`.
+See `policies/heuristic_policy.py` (run via `evaluate.py` / `train.py`).
 
 | Date | Episodes | Mean reward | Std dev | Min / Max | Battery violations | Invalid actions/ep | Unmet load (kWh)/ep | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2026-08-15 | 100 | -162.59 | 105.83 | -415.90 / -5.00 | 0 | 0.00 | 1.54 | seed=42 base + per-episode seed=ep. Reproduced identically on re-run. |
+|---|---|---|---|---|---|---|---|---|
+| 2026-08-15 | 100 | -162.59 | 105.83 | -415.90 / -5.00 | 0 | 0.00 | 1.54 | seed=42 base + per-episode seed=ep. |
+| 2026-08-16 | 100 | -162.59 | 105.83 | -415.90 / -5.00 | 0 | 0.00 | 1.54 | Re-run after refactor into policies/ + evaluate.py — exact match, confirms refactor didn't change behavior. |
 
 **Reading these results:**
-
 - Roughly halves mean reward penalty vs. random (-162.59 vs -341.22) and cuts unmet
   load nearly in half (1.54 vs 2.88 kWh/ep).
 - Invalid actions = 0, as expected — the heuristic explicitly checks grid/battery
@@ -65,7 +69,7 @@ through the same shared `evaluate.py` used for the baselines above, so results a
 directly comparable. 100,000 training timesteps (~4,166 episodes) per run.
 
 | Date | Train seed | Episodes evaluated | Mean reward | Std dev | Min / Max | Battery violations | Invalid actions/ep | Unmet load (kWh)/ep | Beats heuristic? | Notes |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+|---|---|---|---|---|---|---|---|---|---|---|
 | 2026-08-16 | 0 | 100 | -33.59 | 15.90 | — | 0 | 0.00 | 0.00 | Yes (-33.59 vs -162.59) | First run |
 | 2026-08-16 | 0 (re-run) | 100 | -37.24 | 12.79 | -67.87 / -19.71 | 0 | 0.00 | 0.00 | Yes (-37.24 vs -162.59) | Re-run, same train seed — small variation expected (network init, exploration, buffer sampling are separate RNG streams from the env's own seed, and not all are bit-for-bit reproducible, especially on GPU) |
 | 2026-08-16 | 1 | 100 | -29.19 | 15.55 | — | 0 | 0.00 | 0.00 | Yes | Multi-seed sweep via `run_dqn_multi_seed` |
@@ -78,7 +82,6 @@ Across-seed mean of mean_reward: **-34.49**, across-seed std: **9.96**.
 Range: -24.46 (seed 3, best) to -52.63 (seed 2, worst).
 
 **Reading these results:**
-
 - Every one of the 5 seeds clearly beats the heuristic baseline (-162.59) by a wide
   margin — 3x at the weakest (seed 2) to nearly 7x at the best (seed 3). This is a
   robust result, not a fluke tied to one lucky seed.
@@ -112,7 +115,7 @@ evaluation protocol as DQN: `deterministic=True`, shared `evaluate.py`, 100 held
 episodes, 100,000 training timesteps per run.
 
 | Date | Train seed | Episodes evaluated | Mean reward | Std dev | Min / Max | Battery violations | Invalid actions/ep | Unmet load (kWh)/ep | Beats heuristic? |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+|---|---|---|---|---|---|---|---|---|---|
 | 2026-08-16 | 0 | 100 | -23.09 | 15.52 | -60.20 / 0.00 | 0 | 0.00 | 0.00 | Yes |
 | 2026-08-16 | 1 | 100 | -23.09 | 15.52 | -60.20 / 0.00 | 0 | 0.00 | 0.00 | Yes |
 | 2026-08-16 | 2 | 100 | -23.09 | 15.52 | -60.20 / 0.00 | 0 | 0.00 | 0.00 | Yes |
@@ -123,7 +126,6 @@ episodes, 100,000 training timesteps per run.
 (byte-identical results across all 5 training seeds).
 
 **Reading these results:**
-
 - Beats the heuristic baseline (-162.59) by ~7x, and even edges out DQN's across-seed
   mean (-34.49) — A2C's best single number here is DQN's best-seed territory (DQN
   seed 3: -24.46).
@@ -145,3 +147,52 @@ episodes, 100,000 training timesteps per run.
   environment/state space grows — a simple environment may just have one dominant
   optimal strategy that's easy for both methods to find, which would mask real
   stability differences that appear at higher complexity.
+
+---
+
+### PPO Training Results
+
+Using Stable-Baselines3's `PPO` (`MlpPolicy`) — see `algorithms/ppo.py`. Uses the
+SAME discrete action space as DQN/A2C (not the continuous version from the project
+plan yet), so this is a fair, apples-to-apples comparison against them first —
+isolating "is PPO a better algorithm" from "does a continuous action space help."
+Continuous actions are a planned later extension. Same evaluation protocol as
+DQN/A2C: `deterministic=True`, shared `evaluate.py`, 100 held-out episodes, 100,000
+training timesteps per run.
+
+| Date | Train seed | Episodes evaluated | Mean reward | Std dev | Unmet load (kWh)/ep | Beats heuristic? |
+|---|---|---|---|---|---|---|
+| 2026-08-16 | 0 | 100 | -32.84 | 15.90 | 0.00 | Yes |
+| 2026-08-16 | 1 | 100 | -31.21 | 16.10 | 0.00 | Yes |
+| 2026-08-16 | 2 | 100 | -24.18 | 15.55 | 0.00 | Yes |
+| 2026-08-16 | 3 | 100 | -46.89 | 16.49 | 0.00 | Yes |
+| 2026-08-16 | 4 | 100 | -31.56 | 13.97 | 0.00 | Yes |
+
+**Across-seed summary:** mean of mean_reward: **-33.34**, std across seeds: **7.42**.
+Range: -24.18 (seed 2, best) to -46.89 (seed 3, worst).
+
+**Reading these results:**
+- Zero unmet load across all 5 seeds and all 100 evaluation episodes each — matches
+  DQN and A2C's reliability here.
+- Across-seed std (7.42) is the **tightest of the three trained algorithms** so far
+  (DQN: 9.96, A2C: 0.00-but-suspect — see A2C notes above) — no single catastrophic
+  outlier seed the way DQN's seed 2 was; PPO's worst seed (-46.89) is still well
+  within a reasonable range of its best (-24.18).
+- Consistent with PPO's known design purpose: the clipped objective specifically
+  exists to prevent destructively large policy updates, which shows up here as more
+  consistent seed-to-seed reliability than DQN, without A2C's suspiciously-perfect
+  zero variance.
+
+| Algorithm | Across-seed mean | Across-seed std | Unmet load (any seed) |
+|---|---|---|---|
+| Random | -341.22 to -393.04 (single-seed, not multi-seeded) | high | frequent |
+| Heuristic | -162.59 (deterministic, no seed variance) | — | some (1.54/ep) |
+| DQN | -34.49 | 9.96 | seed 2 only (0.07/ep) |
+| PPO | -33.34 | 7.42 | none |
+
+**Honest reportable claim:** PPO reliably beats the heuristic baseline across 5 seeds
+(mean -33.34 ± 7.42) with zero unmet load in every seed, and shows tighter seed-to-seed
+consistency than DQN — this is the strongest all-around multi-seed result so far,
+making it a solid candidate for the Optuna tuning stage next.
+
+---

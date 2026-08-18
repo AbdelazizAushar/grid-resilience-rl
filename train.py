@@ -1,13 +1,9 @@
-"""
-Orchestrator: run baselines and/or train+evaluate algorithms, all through the
-same shared evaluate_policy() so every row of results is directly comparable.
-"""
-
 from policies.random_policy import random_action
 from policies.heuristic_policy import heuristic_action
 from policies.trained_policy import make_trained_action_fn
 from algorithms.dqn import train_dqn
 from algorithms.a2c import train_a2c
+from algorithms.ppo import train_ppo
 from evaluate import evaluate_policy
 import numpy as np
 
@@ -52,6 +48,21 @@ def run_a2c_multi_seed(seeds=(0, 1, 2, 3, 4), total_timesteps=100_000, num_episo
                            total_timesteps=total_timesteps, num_episodes=num_episodes)
 
 
+def run_ppo(total_timesteps=100_000, train_seed=0, num_episodes=100):
+    print("Training PPO...")
+    model = train_ppo(total_timesteps=total_timesteps, seed=train_seed)
+    print("\nTraining complete. Evaluating...")
+    action_fn = make_trained_action_fn(model)
+    results = evaluate_policy(action_fn, policy_name="Trained PPO",
+                              num_episodes=num_episodes)
+    return model, results
+
+
+def run_ppo_multi_seed(seeds=(0, 1, 2, 3, 4), total_timesteps=100_000, num_episodes=100):
+    return _run_multi_seed(run_ppo, "PPO", seeds=seeds,
+                           total_timesteps=total_timesteps, num_episodes=num_episodes)
+
+
 def _run_multi_seed(run_fn, algo_name, seeds, total_timesteps, num_episodes):
     all_results = []
 
@@ -86,4 +97,4 @@ if __name__ == "__main__":
     # run_heuristic_baseline()
     # run_dqn()
     # run_a2c()
-    run_a2c_multi_seed()
+    run_ppo_multi_seed()
