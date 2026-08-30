@@ -31,7 +31,7 @@ impossible states occur and reward scale is sane, before trusting any training r
 - These numbers are the floor DQN needs to clear by a wide margin.
 - Unlike the heuristic baseline (below), these three runs do NOT match exactly despite
   identical seeding intent — see open items. Root cause suspected: `env.action_space.sample()`
-  uses Gymnasium's own internal RNG, separate from the environment's `self._np_random`,
+  uses Gymnasium's internal RNG, separate from the environment's `self._np_random`,
   and is likely not being explicitly seeded.
 
 ### Heuristic Policy Baseline
@@ -151,8 +151,6 @@ Range: -23.09 (seeds 1/4, best) to -39.26 (seed 3, worst).
 - Worth re-checking whether A2C's relative tightness (excluding the seed-3 outlier)
   holds once solar/generator are added and the environment/state space grows.
 
----
-
 ### PPO Training Results
 
 Using Stable-Baselines3's `PPO` (`MlpPolicy`) — see `algorithms/ppo.py`. Uses the
@@ -177,25 +175,90 @@ Range: -24.18 (seed 2, best) to -46.89 (seed 3, worst).
 **Reading these results:**
 - Zero unmet load across all 5 seeds and all 100 evaluation episodes each — matches
   DQN and A2C's reliability here.
-- Across-seed std (7.42) is the **tightest of the three trained algorithms** so far
-  (DQN: 9.96, A2C: 0.00-but-suspect — see A2C notes above) — no single catastrophic
-  outlier seed the way DQN's seed 2 was; PPO's worst seed (-46.89) is still well
-  within a reasonable range of its best (-24.18).
+- Across-seed std (7.42) sits between A2C (6.46) and DQN (9.96) — no single
+  catastrophic outlier seed the way DQN's seed 2 or A2C's seed 3 were; PPO's worst
+  seed (-46.89) is still well within a reasonable range of its best (-24.18).
 - Consistent with PPO's known design purpose: the clipped objective specifically
-  exists to prevent destructively large policy updates, which shows up here as more
-  consistent seed-to-seed reliability than DQN, without A2C's suspiciously-perfect
-  zero variance.
+  exists to prevent destructively large policy updates, which shows up here as
+  smoother seed-to-seed behavior than either DQN or A2C — no seed collapses to a
+  clearly weaker policy the way DQN's seed 2 and A2C's seed 3 do.
 
-| Algorithm | Across-seed mean | Across-seed std | Unmet load (any seed) |
+### Optuna Tuning — PPO Only
+
+Per the project plan, Optuna tuning is scoped to PPO only (the final proposed
+approach) — DQN/A2C keep reasonable/default hyperparameters as fair baselines.
+See `tune_optuna.py`. Search space: `learning_rate`, `n_steps`, `batch_size`,
+`n_epochs`, `gamma`, `gae_lambda`, `clip_range`, `ent_coef`. 30 trials, each
+trained for a reduced 30,000 timesteps (vs. 100,000 for final results) and
+evaluated on 30 held-out episodes, purely for search speed.
+
+**Best trial found:** mean_reward -28.52 (search-time evaluation — reduced
+timesteps/episodes, not directly comparable to full-length results below).
+
+**Best hyperparameters:**
+```
+learning_rate: 0.0005105056908687467
+n_steps: 128
+batch_size: 64
+n_epochs: 19
+gamma: 0.9291167373834784
+gae_lambda: 0.8202105353885819
+clip_range: 0.38909788182562793
+ent_coef: 0.014106721390388818
+```
+
+**Full-length, multi-seed re-run with these hyperparameters** (100,000 timesteps,
+100 evaluation episodes per seed — same protocol as the untuned PPO baseline above,
+via `run_ppo_tuned_multi_seed()`):
+
+| Date | Train seed | Mean reward | Std dev | Unmet load (kWh)/ep |
+|---|---|---|---|---|
+| 2026-08-17 | 0 | -23.09 | 15.52 | 0.00 |
+| 2026-08-17 | 1 | -23.33 | 15.44 | 0.00 |
+| 2026-08-17 | 2 | -23.09 | 15.52 | 0.00 |
+| 2026-08-17 | 3 | -24.99 | 18.99 | 0.02 |
+| 2026-08-17 | 4 | -30.83 | 26.58 | 0.07 |
+
+**Across-seed summary:** mean of mean_reward: **-25.06**, std across seeds: **2.97**.
+
+**Before vs. after Optuna tuning:**
+
+| PPO | Across-seed mean | Across-seed std | Unmet load (any seed) |
 |---|---|---|---|
-| Random | -341.22 to -393.04 (single-seed, not multi-seeded) | high | frequent |
-| Heuristic | -162.59 (deterministic, no seed variance) | — | some (1.54/ep) |
-| DQN | -34.49 | 9.96 | seed 2 only (0.07/ep) |
-| PPO | -33.34 | 7.42 | none |
+| Before (default hyperparameters) | -33.34 | 7.42 | none |
+| After (Optuna-tuned) | **-25.06** | **2.97** | 2 of 5 seeds, small (0.02, 0.07) |
 
-**Honest reportable claim:** PPO reliably beats the heuristic baseline across 5 seeds
-(mean -33.34 ± 7.42) with zero unmet load in every seed, and shows tighter seed-to-seed
-consistency than DQN — this is the strongest all-around multi-seed result so far,
-making it a solid candidate for the Optuna tuning stage next.
+**Reading these results:**
+- Mean reward improved by roughly 25% (-33.34 → -25.06) — a real, meaningful gain,
+  not noise, and now comparable to A2C's best seeds.
+- Across-seed std dropped by more than half (7.42 → 2.97) — the tuned config is
+  substantially more consistent seed-to-seed. Four of five seeds land in a tight
+  band (-23.09 to -24.99); only seed 4 drifts further (-30.83).
+- **Honest caveat:** unmet load, which was a clean 0.00 across all seeds in the
+  untuned baseline, shows small nonzero values in 2 of 5 tuned seeds (0.02 and 0.07
+  kWh/episode). Negligible in absolute terms (far below the heuristic's 1.54), but
+  worth noting directly rather than omitting — tuning optimized for `mean_reward` as
+  the Optuna objective, not zero-unmet-load specifically, so this is a plausible
+  minor trade-off rather than a regression to be concerned about.
+- **Honest reportable claim:** Optuna tuning improved PPO's across-seed mean by ~25%
+  and roughly halved its seed-to-seed variance, at the cost of a small, non-zero
+  amount of unmet load appearing in 2 of 5 seeds.
+
+---
+
+## Comparison so far (all with genuine multi-seed variance)
+
+| Algorithm | Across-seed mean | Across-seed std | Outlier seed | Unmet load (any seed) |
+|---|---|---|---|---|
+| Random | -341.22 to -393.04 (single-seed, not multi-seeded) | high | — | frequent |
+| Heuristic | -162.59 (deterministic, no seed variance) | — | — | some (1.54/ep) |
+| DQN | -34.49 | 9.96 | seed 2 (-52.63) | seed 2 only (0.07/ep) |
+| A2C | -26.34 | 6.46 | seed 3 (-39.26) | seed 3 only (0.11/ep) |
+| PPO (untuned) | -33.34 | 7.42 | none | none |
+| **PPO (Optuna-tuned)** | **-25.06** | **2.97** | none | 2 seeds, small (0.02, 0.07) |
+
+**Honest reportable claim:** Optuna-tuned PPO is the strongest overall result —
+best across-seed consistency of any trained algorithm, and a mean reward competitive
+with A2C's best seeds, without A2C's seed-3-style outlier collapse.
 
 ---

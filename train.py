@@ -63,6 +63,27 @@ def run_ppo_multi_seed(seeds=(0, 1, 2, 3, 4), total_timesteps=100_000, num_episo
                            total_timesteps=total_timesteps, num_episodes=num_episodes)
 
 
+def run_ppo_tuned(best_params, total_timesteps=100_000, train_seed=0, num_episodes=100):
+    print("Training PPO (Optuna-tuned)...")
+    model = train_ppo(total_timesteps=total_timesteps,
+                      seed=train_seed, **best_params)
+    print("\nTraining complete. Evaluating...")
+    action_fn = make_trained_action_fn(model)
+    results = evaluate_policy(action_fn, policy_name="Trained PPO (tuned)",
+                              num_episodes=num_episodes)
+    return model, results
+
+
+def run_ppo_tuned_multi_seed(best_params, seeds=(0, 1, 2, 3, 4),
+                             total_timesteps=100_000, num_episodes=100):
+    def run_fn(total_timesteps, train_seed, num_episodes):
+        return run_ppo_tuned(best_params, total_timesteps=total_timesteps,
+                             train_seed=train_seed, num_episodes=num_episodes)
+
+    return _run_multi_seed(run_fn, "PPO (tuned)", seeds=seeds,
+                           total_timesteps=total_timesteps, num_episodes=num_episodes)
+
+
 def _run_multi_seed(run_fn, algo_name, seeds, total_timesteps, num_episodes):
     all_results = []
 
@@ -93,9 +114,19 @@ def _run_multi_seed(run_fn, algo_name, seeds, total_timesteps, num_episodes):
 
 
 if __name__ == "__main__":
+    # after optuna tuning
+    best_params = {
+        'learning_rate': 0.0005105056908687467,
+        'n_steps': 128,
+        'batch_size': 64,
+        'n_epochs': 19,
+        'gamma': 0.9291167373834784,
+        'gae_lambda': 0.8202105353885819,
+        'clip_range': 0.38909788182562793,
+        'ent_coef': 0.014106721390388818,
+    }
     # run_random_baseline()
     # run_heuristic_baseline()
     # run_dqn()
     # run_a2c()
-    run_a2c_multi_seed()
-    # run_ppo_multi_seed()
+    run_ppo_tuned_multi_seed(best_params)
